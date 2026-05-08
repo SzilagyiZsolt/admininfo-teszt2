@@ -2,19 +2,58 @@
 <html lang="hu">
 <head>
     <meta charset="UTF-8">
-    <title>AdminInfo Slideshow</title>
+    <title>AdminInfo Pro Slideshow</title>
     <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: black; overflow: hidden; display: flex; justify-content: center; align-items: center; }
-        img { max-width: 100%; max-height: 100%; display: none; transition: opacity 1s; }
-        .active { display: block; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #0b1121; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; display: flex; flex-direction: column; }
+        
+        /* A fő galéria doboza */
+        #gallery-container { flex-grow: 1; position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden; }
+
+        /* A kép alapbeállítása */
+        img { max-width: 90%; max-height: 90%; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); transition: transform 0.4s ease-in-out, opacity 0.4s ease-in-out; opacity: 1; }
+
+        /* --- 1. KÉRÉS: Zoom effekt, ha az egeret ráviszed --- */
+        img:hover { transform: scale(1.1); /* 10%-kal megnöveli */ }
+
+        /* Áttűnési effekt váltáskor */
+        .fade-out { opacity: 0; }
+
+        /* --- 2. KÉRÉS: Manuális léptető gombok --- */
+        .nav-btn { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(30, 41, 59, 0.7); color: white; border: none; padding: 15px 20px; font-size: 1.5em; border-radius: 50%; cursor: pointer; transition: background 0.2s; z-index: 10; }
+        .nav-btn:hover { background: rgba(59, 130, 246, 0.9); }
+        #prevBtn { left: 20px; }
+        #nextBtn { right: 20px; }
+
+        /* Az alsó vezérlőpult (Beállítások) */
+        #controls { background: #1e293b; color: #94a3b8; padding: 15px; text-align: center; border-top: 1px solid #334155; display: flex; justify-content: center; align-items: center; gap: 10px;}
+        button.control-btn { background: #3b82f6; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; transition: background 0.2s; margin-left: 10px; }
+        button.control-btn:hover { background: #2563eb; }
+        span.info { font-size: 0.9em; margin-right: 15px; }
     </style>
 </head>
 <body>
-    <div id="gallery"></div>
+
+    <div id="gallery-container">
+        <button id="prevBtn" class="nav-btn">&#10094;</button>
+        
+        <div id="imgWrapper">
+            </div>
+
+        <button id="nextBtn" class="nav-btn">&#10095;</button>
+    </div>
+
+    <div id="controls">
+        <span class="info" id="statusInfo">Slideshow aktív (Váltás: 5mp)</span>
+        <button class="control-btn" onclick="setSpeed(3000)">Gyors (3mp)</button>
+        <button class="control-btn" onclick="setSpeed(5000)">Normál (5mp)</button>
+        <button class="control-btn" onclick="setSpeed(10000)">Lassú (10mp)</button>
+    </div>
 
     <script>
         let images = [];
         let currentIndex = 0;
+        let timer = null;
+        let currentInterval = 5000; // Alapértelmezett váltási idő
 
         async function loadImages() {
             try {
@@ -22,21 +61,77 @@
                 images = await res.json();
                 if(images.length > 0) {
                     renderImage();
-                    setInterval(nextImage, 5000);
+                    startSlideshow(); // Automatikus indítás
+                } else {
+                    document.getElementById('gallery-container').innerHTML = "<p style='color:white;'>Nincs kép a mappában!</p>";
                 }
-            } catch (e) { console.error("Hiba:", e); }
+            } catch (e) { 
+                console.error("Hiba:", e); 
+                document.getElementById('gallery-container').innerHTML = "<p style='color:red;'>Hiba az adatok betöltésekor. Futtasd weben!</p>";
+            }
         }
 
+        // Kép megjelenítése
         function renderImage() {
-            const container = document.getElementById('gallery');
-            container.innerHTML = `<img src="kepek/${images[currentIndex]}" class="active">`;
+            const container = document.getElementById('imgWrapper');
+            // GitHub-kompatibilis relatív elérés: kepek/fajlnev.jpg
+            container.innerHTML = `<img src="kepek/${images[currentIndex]}" id="currentImg">`;
         }
 
+        // Váltás a következő képre
         function nextImage() {
-            currentIndex = (currentIndex + 1) % images.length;
-            renderImage();
+            const img = document.getElementById('currentImg');
+            if(!img) return;
+            img.classList.add('fade-out'); // Áttűnés indítása
+
+            setTimeout(() => {
+                currentIndex = (currentIndex + 1) % images.length;
+                renderImage();
+            }, 400); // Megvárjuk az áttűnést
         }
 
+        // Váltás az előző képre (Manuális)
+        function prevImage() {
+            stopSlideshow(); // Megállítjuk az autót, ha a user léptet
+            const img = document.getElementById('currentImg');
+            if(!img) return;
+            img.classList.add('fade-out');
+
+            setTimeout(() => {
+                currentIndex = (currentIndex - 1 + images.length) % images.length;
+                renderImage();
+                startSlideshow(); // Újraindítjuk az időzítőt
+            }, 400);
+        }
+
+        // Automatikus slideshow funkciók
+        function startSlideshow() {
+            if(timer) clearInterval(timer);
+            timer = setInterval(nextImage, currentInterval);
+        }
+
+        function stopSlideshow() {
+            if(timer) clearInterval(timer);
+        }
+
+        // --- 3. KÉRÉS: A beállítások (sebesség) kezelése ---
+        function setSpeed(ms) {
+            currentInterval = ms;
+            startSlideshow(); // Újraindítjuk a kiválasztott sebességgel
+            const sec = ms / 1000;
+            document.getElementById('statusInfo').innerText = `Slideshow aktív (Váltás: ${sec}mp)`;
+        }
+
+        // Eseménykezelők hozzáadása a gombokhoz
+        document.getElementById('nextBtn').addEventListener('click', () => {
+            stopSlideshow(); // Megállítjuk az autót, ha a user léptet
+            nextImage();
+            startSlideshow(); // Újraindítjuk
+        });
+        
+        document.getElementById('prevBtn').addEventListener('click', prevImage);
+
+        // Betöltés
         loadImages();
     </script>
 </body>
