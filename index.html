@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin HealthCenter</title>
+	<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #0b1121; color: #94a3b8; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; margin: 0; padding: 20px; }
+        .sidebar { width: 320px; display: flex; flex-direction: column; gap: 15px; border-right: 1px solid #1e293b; padding-right: 20px; }
+        .card { background-color: #1e293b; border-radius: 8px; padding: 15px; cursor: pointer; border: 1px solid #334155; transition: 0.2s; }
+        .card:hover { border-color: #475569; }
+        .card.active { border-color: #3b82f6; background-color: #1e293b; box-shadow: 0 0 10px rgba(59, 130, 246, 0.2); }
+        .card-title { color: #f8fafc; font-weight: bold; font-size: 1.1em; display: flex; align-items: center; gap: 10px;}
+        .status-dot { height: 12px; width: 12px; background-color: #ef4444; border-radius: 50%; display: inline-block; }
+        .card-time { font-size: 0.85em; margin-top: 8px; color: #94a3b8; }
+        .content { flex-grow: 1; padding-left: 20px; }
+        .panel { background-color: #111827; border-radius: 8px; padding: 20px; border: 1px solid #1e293b; }
+        .panel-title { color: #f8fafc; font-size: 1.2em; font-weight: bold; margin-bottom: 20px; }
+        .chart-wrapper { width: 250px; height: 250px; margin-bottom: 30px; position: relative;}
+        .center-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #f8fafc; font-weight: bold; font-size: 1.2em;}
+        table { width: 100%; border-collapse: collapse; font-size: 0.9em; text-align: left; }
+        th { padding: 12px; border-bottom: 2px solid #1e293b; color: #94a3b8; font-weight: normal; }
+        td { padding: 12px; border-bottom: 1px solid #1e293b; color: #f8fafc; }
+        .used-percent { color: #10b981; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="sidebar" id="cardContainer"></div>
+
+    <div class="content" id="detailsContainer" style="display: none;">
+        <div class="panel">
+            <div class="panel-title">Tárhely (minden meghajtó)</div>
+            <div style="display: flex; gap: 40px; align-items: flex-start;">
+                <div class="chart-wrapper">
+                    <canvas id="diskChart"></canvas>
+                    <div id="chartCenterText" class="center-text">0%</div>
+                </div>
+                <div style="flex-grow: 1;">
+                    <table>
+                        <thead>
+                            <tr><th>Drive</th><th>Type</th><th>Label</th><th>FS</th><th>Size</th><th>Used</th><th>Free</th><th>Used%</th></tr>
+                        </thead>
+                        <tbody id="tableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let machinesData = {};
+        let chartInstance = null;
+
+        async function init(){
+            try{
+                const manifestRes = await fetch('json/manifest.txt');
+                const files = await manifestRes.json();
+
+                for(let file of files){
+                    const res = await fetch(`json/${file}`);
+                    const data = await res.json();
+                    machinesData[data.MachineName] = data;
+                    createCard(data);
+                }
+
+                const machineNames = Object.keys(machinesData);
+                if(machineNames.length>0){
+                    selectMachine(machineNames[0]);
+                }
+            } catch(error){
+                console.error("Hiba az adatok betöltésekor.", error);
+                document.getElementById('cardContainer').innerHTML = "<p style='color:red;'>Hiba az adatok betöltésekor. Futtass egy helyi webszervert!</p>";
+            }
+        }
+
+        function createCard(data){
+            const container = document.getElementById('cardContainer');
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.id = `card-${data.MachineName}`;
+            card.onclick = () => selectMachine(data.MachineName);
+
+            card.innerHTML = `
+                <div class="card-title"> ${data.MachineName} <span class="status-dot"></span></div>
+                <div class="card-time">Generálva: ${data.GeneratedTime}</div> 
+            `;
+            container.appendChild(card);
+        }
+
+        function selectMachine(machineName){
+            document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
+            document.getElementById(`card-${machineName}`).classList.add('active');
+
+            document.getElementById(`detailsContainer`).style.display = 'block';
+
+            const data = machinesData[machineName];
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+
+            let totalSize = 0;
+            let totalUsed = 0;
+
+            data.Disks.forEach(disk => {
+                totalSize += disk.Size;
+                totalUsed += disk.Used;
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${disk.Drive}</td>
+                    <td>${disk.Type}</td>
+                    <td>${disk.Label}</td>
+                    <td>${disk.FS}</td>
+                    <td>${disk.Size} GB</td>
+                    <td>${disk.Used} GB</td>
+                    <td>${disk.Free} GB</td>
+                    <td class="used-percent">${disk.UsedPercent}%</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            updateChart(totalSize, totalUsed);
+        }
+
+        function updateChart(totalSize, totalUsed) {
+            const ctx = document.getElementById('diskChart').getContext('2d');
+            const totalFree = totalSize - totalUsed;
+            const avgUsedPercent = ((totalUsed / totalSize) * 100).toFixed(2);
+            
+            document.getElementById('chartCenterText').innerText = `${avgUsedPercent}%`;
+
+            if (chartInstance) { chartInstance.destroy(); }
+
+            chartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Foglalt (GB)', 'Szabad (GB)'],
+                    datasets: [{
+                        data: [totalUsed.toFixed(2), totalFree.toFixed(2)],
+                        backgroundColor: ['#ef4444', '#10b981'],
+                        borderWidth: 0,
+                        cutout: '75%'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
+        init();
+    </script>
+</body>
+</html>
